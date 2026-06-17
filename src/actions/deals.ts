@@ -159,33 +159,47 @@ export async function deleteDealPhotoAction(formData: FormData): Promise<void> {
 
 // Send (or re-send) a deal to a buyer: creates a DealInterest with a unique
 // public token if one doesn't already exist for this deal+buyer pair.
-export async function sendDealToBuyerAction(formData: FormData): Promise<void> {
+// Send a deal to one or more selected buyers at once (the send checklist).
+// Each buyer gets a private per-recipient token; re-sending keeps the existing
+// token and engagement.
+export async function sendDealToBuyersAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const dealId = String(formData.get("dealId") ?? "");
-  const buyerId = String(formData.get("buyerId") ?? "");
-  if (!dealId || !buyerId) return;
+  const buyerIds = formData
+    .getAll("buyerId")
+    .map((b) => String(b))
+    .filter(Boolean);
+  if (!dealId || buyerIds.length === 0) return;
 
-  // Verify both the deal and the buyer belong to the current user before
-  // linking them — prevents linking across tenants.
-  const [deal, buyer] = await Promise.all([
-    prisma.deal.findFirst({ where: { id: dealId, userId: user.id } }),
-    prisma.buyer.findFirst({ where: { id: buyerId, userId: user.id } }),
-  ]);
-  if (!deal || !buyer) return;
+  // Confirm the deal belongs to the user.
+  const deal = await prisma.deal.findFirst({
+    where: { id: dealId, userId: user.id },
+  });
+  if (!deal) return;
 
-  await prisma.dealInterest.upsert({
-    where: { dealId_buyerId: { dealId, buyerId } },
-    create: { dealId, buyerId, token: crypto.randomBytes(24).toString("hex") },
-    update: {}, // already sent; keep existing token & engagement
+  // Keep only buyer ids that actually belong to the user (no cross-tenant link).
+  const ownedBuyers = await prisma.buyer.findMany({
+    where: { id: { in: buyerIds }, userId: user.id },
+    select: { id: true },
   });
 
-  await logAudit({
-    userId: user.id,
-    action: "deal.send",
-    entity: "deal",
-    entityId: dealId,
-    detail: `buyer:${buyerId}`,
-  });
+  for (const { id: buyerId } of ownedBuyers) {
+    await prisma.dealInterest.upsert({
+      where: { dealId_buyerId: { dealId, buyerId } },
+      create: { dealId, buyerId, token: crypto.randomBytes(24).toString("hex") },
+      update: {},
+    });
+  }
+
+  if (ownedBuyers.length > 0) {
+    await logAudit({
+      userId: user.id,
+      action: "deal.send",
+      entity: "deal",
+      entityId: dealId,
+      detail: `${ownedBuyers.length} buyer(s)`,
+    });
+  }
   revalidatePath(`/deals/${dealId}`);
 }
 

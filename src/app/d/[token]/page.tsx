@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { prisma } from "@/lib/prisma";
 import {
   recordDealView,
   respondToDealAction,
   submitOfferAction,
 } from "@/actions/interest";
+import { getInterestByToken } from "@/lib/services/interest";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { Wordmark } from "@/components/Brand";
 
@@ -31,13 +31,7 @@ export default async function PublicDealPage({
   // The token is the only credential. It maps to exactly one buyer+deal pair,
   // so we expose only this deal's shared details — nothing else about the
   // wholesaler's account or other buyers.
-  const interest = await prisma.dealInterest.findUnique({
-    where: { token: params.token },
-    include: {
-      deal: { include: { photos: { orderBy: { createdAt: "asc" } } } },
-      buyer: true,
-    },
-  });
+  const interest = await getInterestByToken(params.token);
   if (!interest) notFound();
 
   // Archived deals are pulled from circulation.

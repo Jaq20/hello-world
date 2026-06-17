@@ -9,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -21,9 +21,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions Session[]
-  buyers   Buyer[]
-  deals    Deal[]
+  sessions     Session[]
+  buyers       Buyer[]
+  deals        Deal[]
+  resetTokens  PasswordResetToken[]
 }
 
 // Server-side, revocable sessions. The cookie stores only an opaque token
@@ -35,6 +36,20 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Single-use password reset tokens. Only the hash is stored; the raw token
+// travels by email. Consumed tokens are deleted and all sessions revoked.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
 }
@@ -82,7 +97,7 @@ model Deal {
   sqft           Int?
   description    String?
 
-  // active | pending | sold | archived
+  // active | archived
   status String @default("active")
 
   createdAt DateTime @default(now())

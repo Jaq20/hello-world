@@ -1,11 +1,16 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { cache } from "react";
+import { cache as reactCache } from "react";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import type { User } from "@prisma/client";
+
+// `cache` exists only in the React Server build; fall back to identity outside
+// it (e.g. unit tests) so this module is importable anywhere.
+const cache: <T extends (...args: never[]) => unknown>(fn: T) => T =
+  typeof reactCache === "function" ? reactCache : (fn) => fn;
 
 const SESSION_COOKIE = "pf_session";
 const SESSION_TTL_DAYS = 30;

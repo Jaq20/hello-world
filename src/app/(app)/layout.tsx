@@ -17,7 +17,7 @@ export default async function AppLayout({
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 border-r border-slate-200 bg-white">
         <div className="flex h-16 items-center px-6">
-          <Link href="/dashboard">
+          <Link href="/deals">
             <Wordmark />
           </Link>
         </div>
@@ -41,7 +41,7 @@ export default async function AppLayout({
       <div className="flex min-h-screen flex-1 flex-col md:pl-64">
         {/* Mobile top bar */}
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden">
-          <Link href="/dashboard">
+          <Link href="/deals">
             <Wordmark />
           </Link>
           <form action={logoutAction}>

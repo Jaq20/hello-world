@@ -10,7 +10,7 @@ export default async function AuthLayout({
 }) {
   // Authenticated users have no business on the login/signup screens.
   const user = await getCurrentUser();
-  if (user) redirect("/dashboard");
+  if (user) redirect("/deals");
 
   return (
     <div className="flex min-h-screen flex-col">

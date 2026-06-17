@@ -12,16 +12,15 @@ import {
 } from "@/components/badges";
 import { CopyLink } from "@/components/CopyLink";
 import {
-  sendDealToBuyerAction,
+  sendDealToBuyersAction,
   unsendDealAction,
   setDealStatusAction,
   setOfferStatusAction,
   deleteDealPhotoAction,
 } from "@/actions/deals";
-import { DEAL_STATUSES } from "@/lib/validation";
-import { titleCase } from "@/lib/format";
 import { PhotoUploadForm } from "@/components/PhotoUploadForm";
 import { MAX_PHOTOS_PER_DEAL } from "@/lib/uploads";
+import { SendList } from "@/components/SendList";
 
 export const metadata: Metadata = { title: "Deal — PropFlip" };
 
@@ -53,17 +52,36 @@ export default async function DealDetailPage({
   const buyers = await prisma.buyer.findMany({ where: { userId: user.id } });
   const ranked = matchBuyersToDeal(buyers, deal);
 
-  // Map buyerId -> existing interest record (already-sent buyers).
   const interestByBuyer = new Map(deal.interests.map((i) => [i.buyerId, i]));
+
+  // Recipients (already sent), most recent activity first.
+  const recipients = deal.interests
+    .slice()
+    .sort(
+      (a, b) =>
+        (b.respondedAt ?? b.viewedAt ?? b.sentAt).getTime() -
+        (a.respondedAt ?? a.viewedAt ?? a.sentAt).getTime(),
+    );
+
+  // Buyers not yet sent → the send checklist (matches first).
+  const candidates = ranked
+    .filter((r) => !interestByBuyer.has(r.buyer.id))
+    .map((r) => ({
+      id: r.buyer.id,
+      name: r.buyer.name,
+      matched: r.matched,
+      reasons: r.reasons,
+    }));
 
   const spread =
     deal.arv != null && deal.askingPrice != null
       ? deal.arv - deal.askingPrice - (deal.repairEstimate ?? 0)
       : null;
 
-  const sentCount = deal.interests.length;
-  const interestedCount = deal.interests.filter((i) => i.status === "interested").length;
-  const offers = deal.interests.filter((i) => i.offerStatus != null);
+  const offers = deal.interests
+    .filter((i) => i.offerStatus != null)
+    .sort((a, b) => (b.offerAmount ?? 0) - (a.offerAmount ?? 0));
+  const archived = deal.status === "archived";
 
   return (
     <div>
@@ -83,28 +101,17 @@ export default async function DealDetailPage({
             {deal.address}, {deal.city}, {deal.state} {deal.zip ?? ""}
           </p>
         </div>
-        <Link href={`/deals/${deal.id}/edit`} className="btn-secondary">
-          Edit
-        </Link>
-      </div>
-
-      {/* Quick status switcher */}
-      <div className="mb-6 flex flex-wrap gap-2">
-        {DEAL_STATUSES.map((s) => (
-          <form action={setDealStatusAction} key={s}>
+        <div className="flex items-center gap-2">
+          <Link href={`/deals/${deal.id}/edit`} className="btn-secondary">
+            Edit
+          </Link>
+          {/* Single Archive / Restore toggle */}
+          <form action={setDealStatusAction}>
             <input type="hidden" name="dealId" value={deal.id} />
-            <input type="hidden" name="status" value={s} />
-            <button
-              className={`badge cursor-pointer ${
-                deal.status === s
-                  ? "bg-teal-600 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-inset ring-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              {titleCase(s)}
-            </button>
+            <input type="hidden" name="status" value={archived ? "active" : "archived"} />
+            <button className="btn-ghost">{archived ? "Restore" : "Archive"}</button>
           </form>
-        ))}
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -185,141 +192,126 @@ export default async function DealDetailPage({
               remaining={MAX_PHOTOS_PER_DEAL - deal.photos.length}
             />
           </div>
+        </div>
 
-          <div className="card p-5">
-            <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Engagement
-            </h2>
-            <p className="text-sm text-slate-600">
-              Sent to <span className="font-semibold text-slate-900">{sentCount}</span> ·{" "}
-              <span className="font-semibold text-green-600">{interestedCount}</span> interested ·{" "}
-              <span className="font-semibold text-indigo-600">{offers.length}</span> offer
-              {offers.length === 1 ? "" : "s"}
-            </p>
+        {/* Right: send + track */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* Offers */}
+          <div className="card">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="font-semibold text-slate-900">Offers</h2>
+            </div>
+            {offers.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-slate-500">
+                No offers yet. Offers appear here after buyers receive this deal
+                and respond.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {offers.map((o) => (
+                  <li key={o.id} className="px-5 py-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-lg font-bold text-slate-900">
+                        {formatCurrency(o.offerAmount)}
+                      </span>
+                      <OfferStatusBadge status={o.offerStatus ?? "pending"} />
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {o.buyer.name} · {relativeTime(o.offeredAt)}
+                    </p>
+                    {o.offerNote && (
+                      <p className="mt-1 text-sm text-slate-700">&ldquo;{o.offerNote}&rdquo;</p>
+                    )}
+                    {o.offerStatus === "pending" && (
+                      <div className="mt-2 flex gap-2">
+                        <form action={setOfferStatusAction}>
+                          <input type="hidden" name="dealId" value={deal.id} />
+                          <input type="hidden" name="buyerId" value={o.buyerId} />
+                          <input type="hidden" name="offerStatus" value="accepted" />
+                          <button className="btn-primary px-2.5 py-1 text-xs">Accept</button>
+                        </form>
+                        <form action={setOfferStatusAction}>
+                          <input type="hidden" name="dealId" value={deal.id} />
+                          <input type="hidden" name="buyerId" value={o.buyerId} />
+                          <input type="hidden" name="offerStatus" value="declined" />
+                          <button className="btn-danger px-2.5 py-1 text-xs">Decline</button>
+                        </form>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
-          {offers.length > 0 && (
-            <div className="card p-5">
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Offers
-              </h2>
-              <ul className="space-y-3">
-                {offers
-                  .slice()
-                  .sort((a, b) => (b.offerAmount ?? 0) - (a.offerAmount ?? 0))
-                  .map((o) => (
-                    <li key={o.id} className="rounded-lg bg-slate-50 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-slate-900">
-                          {formatCurrency(o.offerAmount)}
-                        </span>
-                        <OfferStatusBadge status={o.offerStatus ?? "pending"} />
-                      </div>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {o.buyer.name} · {relativeTime(o.offeredAt)}
+          {/* Recipients */}
+          {recipients.length > 0 && (
+            <div className="card">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <h2 className="font-semibold text-slate-900">
+                  Recipients ({recipients.length})
+                </h2>
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {recipients.map((interest) => (
+                  <li
+                    key={interest.id}
+                    className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-slate-900">
+                        {interest.buyer.name}
                       </p>
-                      {o.offerNote && (
-                        <p className="mt-1 text-sm text-slate-700">
-                          &ldquo;{o.offerNote}&rdquo;
-                        </p>
-                      )}
-                      {o.offerStatus === "pending" && (
-                        <div className="mt-2 flex gap-2">
-                          <form action={setOfferStatusAction}>
-                            <input type="hidden" name="dealId" value={deal.id} />
-                            <input type="hidden" name="buyerId" value={o.buyerId} />
-                            <input type="hidden" name="offerStatus" value="accepted" />
-                            <button className="btn-primary px-2.5 py-1 text-xs">Accept</button>
-                          </form>
-                          <form action={setOfferStatusAction}>
-                            <input type="hidden" name="dealId" value={deal.id} />
-                            <input type="hidden" name="buyerId" value={o.buyerId} />
-                            <input type="hidden" name="offerStatus" value="declined" />
-                            <button className="btn-danger px-2.5 py-1 text-xs">Decline</button>
-                          </form>
-                        </div>
-                      )}
-                    </li>
-                  ))}
+                      <p className="mt-0.5 truncate text-xs text-slate-400">
+                        {interest.offerAmount != null
+                          ? `Offered ${formatCurrency(interest.offerAmount)} · ${relativeTime(interest.offeredAt)}`
+                          : interest.respondedAt
+                            ? `Responded ${relativeTime(interest.respondedAt)}`
+                            : interest.viewedAt
+                              ? `Opened ${relativeTime(interest.viewedAt)}`
+                              : `Sent ${relativeTime(interest.sentAt)}`}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <InterestStatusBadge status={interest.status} />
+                      <CopyLink path={`/d/${interest.token}`} />
+                      <form action={unsendDealAction}>
+                        <input type="hidden" name="dealId" value={deal.id} />
+                        <input type="hidden" name="buyerId" value={interest.buyerId} />
+                        <button className="btn-ghost px-2 py-1.5 text-xs text-slate-400 hover:text-red-600">
+                          Remove
+                        </button>
+                      </form>
+                    </div>
+                  </li>
+                ))}
               </ul>
             </div>
           )}
-        </div>
 
-        {/* Right: matching & sending */}
-        <div className="lg:col-span-2">
+          {/* Send checklist */}
           <div className="card">
             <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="font-semibold text-slate-900">Match &amp; send</h2>
+              <h2 className="font-semibold text-slate-900">Send to buyers</h2>
               <p className="mt-0.5 text-sm text-slate-600">
-                Buyers ranked by fit. Send a private link and track interest.
+                Pick buyers and send each a private deal link. Matches are listed
+                first.
               </p>
             </div>
-
-            {ranked.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-slate-600">
+            {buyers.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-slate-600">
                 You have no buyers yet.{" "}
                 <Link href="/buyers/new" className="font-semibold text-teal-600">
                   Add a buyer
                 </Link>{" "}
-                to start matching.
+                to start sending.
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100">
-                {ranked.map(({ buyer, matched, reasons, misses }) => {
-                  const interest = interestByBuyer.get(buyer.id);
-                  return (
-                    <li key={buyer.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate font-medium text-slate-900">{buyer.name}</p>
-                          {matched ? (
-                            <span className="badge bg-green-50 text-green-700">Match</span>
-                          ) : (
-                            <span className="badge bg-slate-100 text-slate-500">Low fit</span>
-                          )}
-                        </div>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">
-                          {(reasons.length ? reasons : misses).join(" · ") || "No criteria set"}
-                        </p>
-                        {interest && (
-                          <p className="mt-1 text-xs text-slate-400">
-                            {interest.offerAmount != null
-                              ? `Offered ${formatCurrency(interest.offerAmount)} · ${relativeTime(interest.offeredAt)}`
-                              : interest.respondedAt
-                                ? `Responded ${relativeTime(interest.respondedAt)}`
-                                : interest.viewedAt
-                                  ? `Opened ${relativeTime(interest.viewedAt)}`
-                                  : `Sent ${relativeTime(interest.sentAt)}`}
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2">
-                        {interest ? (
-                          <>
-                            <InterestStatusBadge status={interest.status} />
-                            <CopyLink path={`/d/${interest.token}`} />
-                            <form action={unsendDealAction}>
-                              <input type="hidden" name="dealId" value={deal.id} />
-                              <input type="hidden" name="buyerId" value={buyer.id} />
-                              <button className="btn-ghost px-2 py-1.5 text-xs text-slate-400 hover:text-red-600">
-                                Remove
-                              </button>
-                            </form>
-                          </>
-                        ) : (
-                          <form action={sendDealToBuyerAction}>
-                            <input type="hidden" name="dealId" value={deal.id} />
-                            <input type="hidden" name="buyerId" value={buyer.id} />
-                            <button className="btn-primary px-3 py-1.5 text-xs">Send</button>
-                          </form>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+              <SendList
+                dealId={deal.id}
+                buyers={candidates}
+                action={sendDealToBuyersAction}
+              />
             )}
           </div>
         </div>

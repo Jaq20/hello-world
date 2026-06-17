@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useFormState } from "react-dom";
 import { SubmitButton } from "@/components/SubmitButton";
-import { loginAction, signupAction, type AuthState } from "@/actions/auth";
+import {
+  loginAction,
+  signupAction,
+  requestPasswordResetAction,
+  resetPasswordAction,
+  type AuthState,
+} from "@/actions/auth";
 
 const initial: AuthState = {};
 
@@ -56,6 +62,11 @@ export function LoginForm() {
         )}
       </div>
       <SubmitButton pendingText="Signing in…">Sign in</SubmitButton>
+      <p className="text-center text-sm">
+        <Link href="/forgot-password" className="font-medium text-slate-500 hover:text-slate-700">
+          Forgot password?
+        </Link>
+      </p>
       <p className="text-center text-sm text-slate-600">
         New to PropFlip?{" "}
         <Link href="/signup" className="font-semibold text-teal-600 hover:text-teal-700">
@@ -126,6 +137,71 @@ export function SignupForm() {
           Sign in
         </Link>
       </p>
+    </form>
+  );
+}
+
+export function ForgotPasswordForm() {
+  const [state, action] = useFormState(requestPasswordResetAction, initial);
+
+  if (state.done) {
+    return (
+      <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
+        If an account exists for that email, we&apos;ve sent a reset link. Check
+        your inbox.
+      </div>
+    );
+  }
+
+  return (
+    <form action={action} className="space-y-4" noValidate>
+      <FormError message={state.error} />
+      <div>
+        <label className="label" htmlFor="email">
+          Email
+        </label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          className="input"
+          placeholder="you@example.com"
+        />
+      </div>
+      <SubmitButton pendingText="Sending…">Send reset link</SubmitButton>
+      <p className="text-center text-sm text-slate-600">
+        <Link href="/login" className="font-semibold text-teal-600 hover:text-teal-700">
+          Back to sign in
+        </Link>
+      </p>
+    </form>
+  );
+}
+
+export function ResetPasswordForm({ token }: { token: string }) {
+  const [state, action] = useFormState(resetPasswordAction, initial);
+  return (
+    <form action={action} className="space-y-4" noValidate>
+      <FormError message={state.error} />
+      <input type="hidden" name="token" value={token} />
+      <div>
+        <label className="label" htmlFor="password">
+          New password
+        </label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          className="input"
+          placeholder="At least 8 characters"
+        />
+      </div>
+      <SubmitButton pendingText="Updating…">Set new password</SubmitButton>
     </form>
   );
 }

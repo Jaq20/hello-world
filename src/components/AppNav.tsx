@@ -7,13 +7,6 @@ type NavItem = { href: string; label: string; icon: React.ReactNode };
 
 const items: NavItem[] = [
   {
-    href: "/dashboard",
-    label: "Dashboard",
-    icon: (
-      <path d="M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10" />
-    ),
-  },
-  {
     href: "/deals",
     label: "Deals",
     icon: <path d="M3 7l9-4 9 4-9 4-9-4zm0 5l9 4 9-4M3 17l9 4 9-4" />,

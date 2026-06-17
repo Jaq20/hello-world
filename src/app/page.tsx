@@ -24,7 +24,7 @@ const features = [
 
 export default async function Home() {
   const user = await getCurrentUser();
-  if (user) redirect("/dashboard");
+  if (user) redirect("/deals");
 
   return (
     <div className="min-h-screen">

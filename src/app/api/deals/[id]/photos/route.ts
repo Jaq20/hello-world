@@ -3,8 +3,10 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { saveFile } from "@/lib/storage";
+import { processImage } from "@/lib/images";
 import { logAudit } from "@/lib/audit";
 import { rateLimitByIp } from "@/lib/rate-limit";
+import { isSameOrigin } from "@/lib/http";
 import {
   MAX_PHOTOS_PER_DEAL,
   MAX_PHOTO_BYTES,
@@ -17,6 +19,11 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } },
 ) {
+  // Reject cross-site form posts (defense-in-depth CSRF).
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -47,16 +54,25 @@ export async function POST(
     if (remaining <= 0) break;
     if (file.size > MAX_PHOTO_BYTES) continue;
 
-    const buf = Buffer.from(await file.arrayBuffer());
+    const raw = Buffer.from(await file.arrayBuffer());
 
     // Validate by content, not by the client's claimed type/extension.
-    const mime = sniffImageMime(buf);
-    if (!mime) continue;
+    const sniffed = sniffImageMime(raw);
+    if (!sniffed) continue;
+
+    // Strip EXIF (incl. GPS), auto-orient, and downscale before storing.
+    let data: Buffer;
+    let mime: string;
+    try {
+      ({ data, mime } = await processImage(raw, sniffed));
+    } catch {
+      continue; // unreadable/garbage image — skip
+    }
 
     const key = crypto.randomBytes(16).toString("hex") + extForMime(mime);
-    await saveFile(key, buf);
+    await saveFile(key, data, mime);
     await prisma.dealPhoto.create({
-      data: { dealId: deal.id, storageKey: key, mimeType: mime, size: buf.length },
+      data: { dealId: deal.id, storageKey: key, mimeType: mime, size: data.length },
     });
     remaining -= 1;
     saved += 1;
@@ -72,7 +88,6 @@ export async function POST(
     });
   }
 
-  // Redirect back to the deal (303 forces a GET) so the form post lands on the
-  // updated page.
+  // 303 forces a GET back to the deal so the post lands on the updated page.
   return NextResponse.redirect(new URL(`/deals/${deal.id}`, request.url), 303);
 }

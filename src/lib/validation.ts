@@ -79,7 +79,7 @@ export const PROPERTY_TYPES = [
   "Mobile/Manufactured",
 ] as const;
 
-export const DEAL_STATUSES = ["active", "pending", "sold", "archived"] as const;
+export const DEAL_STATUSES = ["active", "archived"] as const;
 
 export const dealSchema = z.object({
   title: shortOptionalString,

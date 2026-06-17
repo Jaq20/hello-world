@@ -1,6 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import {
   createSession,
@@ -12,10 +14,16 @@ import {
 import { signupSchema, loginSchema, fieldErrors } from "@/lib/validation";
 import { rateLimitByIp } from "@/lib/rate-limit";
 import { logAudit } from "@/lib/audit";
+import { sendEmail } from "@/lib/email";
+import {
+  requestPasswordReset,
+  consumePasswordReset,
+} from "@/lib/services/passwordReset";
 
 export type AuthState = {
   error?: string;
   fieldErrors?: Record<string, string>;
+  done?: boolean;
 };
 
 export async function signupAction(
@@ -51,7 +59,7 @@ export async function signupAction(
 
   await logAudit({ userId: user.id, action: "user.signup" });
   await createSession(user.id);
-  redirect("/dashboard");
+  redirect("/deals");
 }
 
 export async function loginAction(
@@ -95,7 +103,7 @@ export async function loginAction(
 
   await logAudit({ userId: user.id, action: "user.login" });
   await createSession(user.id);
-  redirect("/dashboard");
+  redirect("/deals");
 }
 
 export async function logoutAction(): Promise<void> {
@@ -105,12 +113,58 @@ export async function logoutAction(): Promise<void> {
   redirect("/login");
 }
 
-// Sign out of every device by revoking all of the user's sessions.
-export async function logoutEverywhereAction(): Promise<void> {
-  const user = await getCurrentUser();
-  if (user) {
-    await prisma.session.deleteMany({ where: { userId: user.id } });
+// Request a password reset. Always returns a generic success so the response
+// can't be used to discover which emails have accounts.
+export async function requestPasswordResetAction(
+  _prev: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  if (!rateLimitByIp("pwreset_request", 5, 15 * 60 * 1000).ok) {
+    return { error: "Too many attempts. Please try again later." };
   }
-  await destroySession();
-  redirect("/login");
+
+  const email = z
+    .string()
+    .email()
+    .safeParse(String(formData.get("email") ?? "").trim().toLowerCase());
+
+  if (email.success) {
+    const result = await requestPasswordReset(email.data);
+    if (result) {
+      const h = headers();
+      const proto = h.get("x-forwarded-proto") ?? "http";
+      const base = `${proto}://${h.get("host")}`;
+      const link = `${base}/reset-password?token=${result.token}`;
+      await sendEmail({
+        to: email.data,
+        subject: "Reset your PropFlip password",
+        text: `Reset your password using this link (valid for 1 hour):\n\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+      });
+      await logAudit({ userId: result.userId, action: "user.pwreset_request" });
+    }
+  }
+
+  // Same response whether or not the account exists.
+  return { done: true };
+}
+
+// Complete a password reset using the emailed token.
+export async function resetPasswordAction(
+  _prev: AuthState,
+  formData: FormData,
+): Promise<AuthState> {
+  if (!rateLimitByIp("pwreset_confirm", 10, 15 * 60 * 1000).ok) {
+    return { error: "Too many attempts. Please try again later." };
+  }
+
+  const token = String(formData.get("token") ?? "");
+  const password = String(formData.get("password") ?? "");
+
+  const result = await consumePasswordReset(token, password);
+  if (!result.ok) {
+    return { error: result.error };
+  }
+
+  await logAudit({ action: "user.pwreset_confirm" });
+  redirect("/login?reset=1");
 }
