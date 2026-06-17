@@ -1,0 +1,174 @@
+// PropFlip — data model for a lightweight disposition workflow app.
+// Security note: every business record carries a `userId` foreign key so that
+// all data access can be strictly scoped to the authenticated owner. There is
+// no cross-user sharing of private data; the only public surface is a deal
+// preview reachable by an unguessable per-recipient token.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions     Session[]
+  buyers       Buyer[]
+  deals        Deal[]
+  resetTokens  PasswordResetToken[]
+}
+
+// Server-side, revocable sessions. The cookie stores only an opaque token
+// whose hash is persisted here; the raw token is never stored at rest.
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Single-use password reset tokens. Only the hash is stored; the raw token
+// travels by email. Consumed tokens are deleted and all sessions revoked.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Buyer {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String?
+  phone String?
+  notes String?
+
+  // Matching criteria
+  markets       String? // comma-separated cities or zips
+  propertyTypes String? // comma-separated property types
+  minPrice      Int?
+  maxPrice      Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interests DealInterest[]
+
+  @@index([userId])
+}
+
+model Deal {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title          String?
+  address        String
+  city           String
+  state          String
+  zip            String?
+  propertyType   String?
+  askingPrice    Int?
+  arv            Int? // after-repair value
+  repairEstimate Int?
+  bedrooms       Int?
+  bathrooms      Float?
+  sqft           Int?
+  description    String?
+
+  // active | archived
+  status String @default("active")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interests DealInterest[]
+  photos    DealPhoto[]
+
+  @@index([userId])
+  @@index([userId, status])
+}
+
+// Photo metadata only. The image bytes live in object/file storage (see
+// lib/storage.ts), keeping database storage — and cost — minimal. Cascade
+// deletes the rows with the deal; the action layer unlinks the files.
+model DealPhoto {
+  id         String   @id @default(cuid())
+  dealId     String
+  deal       Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  storageKey String // opaque, random filename in storage
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@index([dealId])
+}
+
+// Join record tracking that a deal was sent to a buyer, plus engagement.
+// Each record holds an unguessable token used for the public, per-recipient
+// deal link so views and responses can be attributed to a specific buyer.
+model DealInterest {
+  id      String @id @default(cuid())
+  dealId  String
+  buyerId String
+
+  deal  Deal  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  buyer Buyer @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  token String @unique
+
+  // sent | viewed | interested | passed | offered
+  status String @default("sent")
+
+  // Offer tracking. A buyer may submit a dollar offer via their private link.
+  // offerStatus is owner-driven once an offer exists: pending | accepted | declined.
+  offerAmount Int?
+  offerNote   String?
+  offerStatus String?
+  offeredAt   DateTime?
+
+  sentAt      DateTime  @default(now())
+  viewedAt    DateTime?
+  respondedAt DateTime?
+
+  @@unique([dealId, buyerId])
+  @@index([dealId])
+  @@index([buyerId])
+}
+
+// Append-only audit trail of security- and data-relevant events. Stored
+// without a hard FK so records survive account deletion; userId is the actor
+// (null for unauthenticated actions such as a failed login).
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  detail    String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
