@@ -92,14 +92,19 @@ async function main() {
   });
 
   // Send the first deal to the two DFW buyers, with some engagement.
+  // Acme has viewed and submitted a pending offer.
   await prisma.dealInterest.create({
     data: {
       dealId: deal.id,
       buyerId: buyers[0].id,
       token: crypto.randomBytes(24).toString("hex"),
-      status: "interested",
+      status: "offered",
       viewedAt: new Date(Date.now() - 3600_000),
       respondedAt: new Date(Date.now() - 1800_000),
+      offerAmount: 158000,
+      offerNote: "Can close in 10 days, cash. Subject to walkthrough.",
+      offerStatus: "pending",
+      offeredAt: new Date(Date.now() - 1800_000),
     },
   });
   await prisma.dealInterest.create({

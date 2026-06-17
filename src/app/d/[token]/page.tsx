@@ -1,7 +1,11 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
-import { recordDealView, respondToDealAction } from "@/actions/interest";
+import {
+  recordDealView,
+  respondToDealAction,
+  submitOfferAction,
+} from "@/actions/interest";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { Wordmark } from "@/components/Brand";
 
@@ -40,7 +44,9 @@ export default async function PublicDealPage({
   await recordDealView(params.token);
 
   const { deal } = interest;
-  const responded = interest.status === "interested" || interest.status === "passed";
+  const hasOffer = interest.offerAmount != null;
+  const passed = interest.status === "passed";
+  const interested = interest.status === "interested";
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -88,39 +94,78 @@ export default async function PublicDealPage({
 
         {/* Response */}
         <div className="card mt-4 p-5">
-          {responded ? (
+          {hasOffer ? (
             <div className="text-center">
-              {interest.status === "interested" ? (
-                <>
-                  <p className="text-lg font-semibold text-green-700">You&apos;re interested 🎉</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    The seller has been notified and will reach out to you.
-                  </p>
-                </>
+              <p className="text-sm text-slate-500">Your offer</p>
+              <p className="mt-1 text-2xl font-extrabold text-slate-900">
+                {formatCurrency(interest.offerAmount)}
+              </p>
+              {interest.offerStatus === "accepted" ? (
+                <p className="mt-2 font-semibold text-green-700">
+                  Accepted by the seller 🎉
+                </p>
+              ) : interest.offerStatus === "declined" ? (
+                <p className="mt-2 font-semibold text-slate-600">
+                  The seller declined this offer.
+                </p>
               ) : (
-                <>
-                  <p className="text-lg font-semibold text-slate-700">Marked as not interested</p>
-                  <p className="mt-1 text-sm text-slate-600">Thanks for letting us know.</p>
-                </>
+                <p className="mt-2 text-sm text-slate-600">
+                  Submitted — the seller will review and follow up.
+                </p>
               )}
+            </div>
+          ) : passed ? (
+            <div className="text-center">
+              <p className="text-lg font-semibold text-slate-700">Marked as not interested</p>
+              <p className="mt-1 text-sm text-slate-600">Thanks for letting us know.</p>
             </div>
           ) : (
             <>
-              <p className="text-center text-sm font-medium text-slate-700">
-                Interested in this deal?
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <form action={respondToDealAction}>
-                  <input type="hidden" name="token" value={interest.token} />
-                  <input type="hidden" name="response" value="passed" />
-                  <button className="btn-secondary w-full">Pass</button>
-                </form>
-                <form action={respondToDealAction}>
-                  <input type="hidden" name="token" value={interest.token} />
-                  <input type="hidden" name="response" value="interested" />
-                  <button className="btn-primary w-full">I&apos;m interested</button>
-                </form>
-              </div>
+              {interested ? (
+                <p className="text-center text-sm font-medium text-green-700">
+                  You marked this as interested. Want to make an offer?
+                </p>
+              ) : (
+                <>
+                  <p className="text-center text-sm font-medium text-slate-700">
+                    Interested in this deal?
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <form action={respondToDealAction}>
+                      <input type="hidden" name="token" value={interest.token} />
+                      <input type="hidden" name="response" value="passed" />
+                      <button className="btn-secondary w-full">Pass</button>
+                    </form>
+                    <form action={respondToDealAction}>
+                      <input type="hidden" name="token" value={interest.token} />
+                      <input type="hidden" name="response" value="interested" />
+                      <button className="btn-primary w-full">I&apos;m interested</button>
+                    </form>
+                  </div>
+                </>
+              )}
+
+              <form action={submitOfferAction} className="mt-4 border-t border-slate-100 pt-4">
+                <input type="hidden" name="token" value={interest.token} />
+                <label className="label" htmlFor="offerAmount">
+                  Make an offer
+                </label>
+                <input
+                  id="offerAmount"
+                  name="offerAmount"
+                  inputMode="numeric"
+                  required
+                  className="input"
+                  placeholder="$ amount"
+                />
+                <textarea
+                  name="offerNote"
+                  rows={2}
+                  className="input mt-2"
+                  placeholder="Optional note (terms, close date…)"
+                />
+                <button className="btn-primary mt-3 w-full">Submit offer</button>
+              </form>
             </>
           )}
         </div>

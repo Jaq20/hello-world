@@ -12,13 +12,16 @@ export default async function DashboardPage() {
   const user = await requireUser();
 
   // All counts/queries are scoped to the signed-in user.
-  const [buyerCount, activeDeals, totalDeals, interested, recentDeals, recentActivity] =
+  const [buyerCount, activeDeals, totalDeals, interested, pendingOffers, recentDeals, recentActivity] =
     await Promise.all([
       prisma.buyer.count({ where: { userId: user.id } }),
       prisma.deal.count({ where: { userId: user.id, status: "active" } }),
       prisma.deal.count({ where: { userId: user.id } }),
       prisma.dealInterest.count({
         where: { status: "interested", deal: { userId: user.id } },
+      }),
+      prisma.dealInterest.count({
+        where: { offerStatus: "pending", deal: { userId: user.id } },
       }),
       prisma.deal.findMany({
         where: { userId: user.id },
@@ -27,7 +30,10 @@ export default async function DashboardPage() {
         include: { _count: { select: { interests: true } } },
       }),
       prisma.dealInterest.findMany({
-        where: { deal: { userId: user.id }, status: { in: ["interested", "viewed"] } },
+        where: {
+          deal: { userId: user.id },
+          status: { in: ["interested", "viewed", "offered"] },
+        },
         orderBy: { sentAt: "desc" },
         take: 6,
         include: { buyer: true, deal: true },
@@ -53,9 +59,9 @@ export default async function DashboardPage() {
         <StatCard label="Buyers" value={buyerCount} />
         <StatCard label="Interested" value={interested} hint="across all deals" />
         <StatCard
-          label="Sent links"
-          value={recentActivity.length > 0 ? "Live" : "—"}
-          hint="tracking opens"
+          label="Pending offers"
+          value={pendingOffers}
+          hint="awaiting your call"
         />
       </div>
 

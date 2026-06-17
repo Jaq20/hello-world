@@ -19,17 +19,27 @@ model you can build on.
   beds/baths/sqft, description, and status (active / pending / sold / archived).
 - **Matching** — buyers are ranked against each deal by how well it fits their
   stated criteria.
-- **Send & track** — generate a private, per-recipient deal link. PropFlip
+- **Distribution** — generate a private, per-recipient deal link. PropFlip
   records opens and lets the recipient mark themselves *interested* or *pass* —
   no account required for the buyer.
-- **Dashboard** — pipeline stats and recent buyer activity at a glance.
+- **Offer tracking** — buyers can submit a dollar offer (with an optional note)
+  on their private link; the wholesaler reviews offers per deal and marks each
+  *accepted* or *declined*. Pending offers surface on the dashboard.
+- **Dashboard** — pipeline stats (active deals, buyers, interested, pending
+  offers) and recent buyer activity at a glance.
 - **Mobile-first** — responsive layout with a desktop sidebar and a mobile tab
   bar.
 
 ### Intentionally out of scope
 
-By design, PropFlip does **not** include a marketplace, buyer network, AI
-features, payments, skip tracing, comps, or a full CRM.
+Per the Product Constitution, the MVP is exactly seven things: authentication,
+buyer management, deal management, buyer matching, deal distribution, offer
+tracking, and the dashboard — and nothing else. PropFlip deliberately excludes a
+marketplace, public listings, buyer network, AI recommendations, SMS, comping,
+skip tracing, acquisition tools, accounting, third-party integrations, a native
+mobile app (responsive web only), and team permissions beyond basic owner
+access. Every feature must help a wholesaler dispose of a deal faster; if it
+doesn't, it isn't built.
 
 ## Tech stack
 
@@ -65,7 +75,7 @@ Open http://localhost:3000.
 
 ```
 prisma/
-  schema.prisma        # User, Session, Buyer, Deal, DealInterest
+  schema.prisma        # User, Session, Buyer, Deal, DealInterest, AuditLog
   seed.mjs             # demo data
 src/
   actions/             # server actions (auth, buyers, deals, interest)
@@ -78,6 +88,8 @@ src/
     auth.ts            # sessions, password hashing, requireUser()
     prisma.ts          # Prisma client singleton
     matching.ts        # buyer <-> deal matching/scoring
+    rate-limit.ts      # per-IP rate limiting
+    audit.ts           # append-only audit logging
     validation.ts      # zod schemas
     format.ts          # formatting helpers
 ```
@@ -95,6 +107,11 @@ src/
 - **Passwords.** Hashed with bcrypt (cost 12). Login uses a constant-shape
   comparison and a generic error to avoid user enumeration.
 - **Input validation.** All form input is validated server-side with zod.
+- **Rate limiting.** Authentication (login/signup) and the public offer/response
+  endpoints are rate-limited per client IP to slow brute force and abuse.
+- **Audit logging.** Security- and data-relevant events (logins, failed
+  logins, signups, buyer/deal create-update-delete, sends, and offers) are
+  written to an append-only `AuditLog`.
 - **Public deal links.** The only unauthenticated surface is `/d/[token]`. The
   token is 24 random bytes and grants access to exactly one deal's shared
   details for one recipient — nothing else about the account.

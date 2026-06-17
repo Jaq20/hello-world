@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { buyerSchema, fieldErrors } from "@/lib/validation";
+import { logAudit } from "@/lib/audit";
 
 export type BuyerFormState = {
   error?: string;
@@ -32,7 +33,15 @@ export async function createBuyerAction(
   const parsed = readBuyerForm(formData);
   if (!parsed.success) return { fieldErrors: fieldErrors(parsed.error) };
 
-  await prisma.buyer.create({ data: { ...parsed.data, userId: user.id } });
+  const buyer = await prisma.buyer.create({
+    data: { ...parsed.data, userId: user.id },
+  });
+  await logAudit({
+    userId: user.id,
+    action: "buyer.create",
+    entity: "buyer",
+    entityId: buyer.id,
+  });
   revalidatePath("/buyers");
   redirect("/buyers");
 }
@@ -53,6 +62,12 @@ export async function updateBuyerAction(
   });
   if (result.count === 0) return { error: "Buyer not found" };
 
+  await logAudit({
+    userId: user.id,
+    action: "buyer.update",
+    entity: "buyer",
+    entityId: buyerId,
+  });
   revalidatePath("/buyers");
   revalidatePath(`/buyers/${buyerId}`);
   redirect("/buyers");
@@ -63,7 +78,17 @@ export async function deleteBuyerAction(formData: FormData): Promise<void> {
   const buyerId = String(formData.get("buyerId") ?? "");
   if (!buyerId) return;
 
-  await prisma.buyer.deleteMany({ where: { id: buyerId, userId: user.id } });
+  const result = await prisma.buyer.deleteMany({
+    where: { id: buyerId, userId: user.id },
+  });
+  if (result.count > 0) {
+    await logAudit({
+      userId: user.id,
+      action: "buyer.delete",
+      entity: "buyer",
+      entityId: buyerId,
+    });
+  }
   revalidatePath("/buyers");
   redirect("/buyers");
 }

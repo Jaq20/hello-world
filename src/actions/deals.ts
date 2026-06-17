@@ -6,11 +6,14 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { dealSchema, fieldErrors, DEAL_STATUSES } from "@/lib/validation";
+import { logAudit } from "@/lib/audit";
 
 export type DealFormState = {
   error?: string;
   fieldErrors?: Record<string, string>;
 };
+
+const OFFER_STATUSES = ["pending", "accepted", "declined"] as const;
 
 function readDealForm(formData: FormData) {
   return dealSchema.safeParse({
@@ -42,6 +45,12 @@ export async function createDealAction(
   const deal = await prisma.deal.create({
     data: { ...parsed.data, userId: user.id },
   });
+  await logAudit({
+    userId: user.id,
+    action: "deal.create",
+    entity: "deal",
+    entityId: deal.id,
+  });
   revalidatePath("/deals");
   redirect(`/deals/${deal.id}`);
 }
@@ -61,6 +70,12 @@ export async function updateDealAction(
   });
   if (result.count === 0) return { error: "Deal not found" };
 
+  await logAudit({
+    userId: user.id,
+    action: "deal.update",
+    entity: "deal",
+    entityId: dealId,
+  });
   revalidatePath("/deals");
   revalidatePath(`/deals/${dealId}`);
   redirect(`/deals/${dealId}`);
@@ -72,10 +87,19 @@ export async function setDealStatusAction(formData: FormData): Promise<void> {
   const status = String(formData.get("status") ?? "");
   if (!dealId || !(DEAL_STATUSES as readonly string[]).includes(status)) return;
 
-  await prisma.deal.updateMany({
+  const result = await prisma.deal.updateMany({
     where: { id: dealId, userId: user.id },
     data: { status },
   });
+  if (result.count > 0) {
+    await logAudit({
+      userId: user.id,
+      action: "deal.status",
+      entity: "deal",
+      entityId: dealId,
+      detail: status,
+    });
+  }
   revalidatePath("/deals");
   revalidatePath(`/deals/${dealId}`);
 }
@@ -85,7 +109,17 @@ export async function deleteDealAction(formData: FormData): Promise<void> {
   const dealId = String(formData.get("dealId") ?? "");
   if (!dealId) return;
 
-  await prisma.deal.deleteMany({ where: { id: dealId, userId: user.id } });
+  const result = await prisma.deal.deleteMany({
+    where: { id: dealId, userId: user.id },
+  });
+  if (result.count > 0) {
+    await logAudit({
+      userId: user.id,
+      action: "deal.delete",
+      entity: "deal",
+      entityId: dealId,
+    });
+  }
   revalidatePath("/deals");
   redirect("/deals");
 }
@@ -112,6 +146,50 @@ export async function sendDealToBuyerAction(formData: FormData): Promise<void> {
     update: {}, // already sent; keep existing token & engagement
   });
 
+  await logAudit({
+    userId: user.id,
+    action: "deal.send",
+    entity: "deal",
+    entityId: dealId,
+    detail: `buyer:${buyerId}`,
+  });
+  revalidatePath(`/deals/${dealId}`);
+}
+
+// Owner-side offer outcome. Accept or decline a buyer's offer on a deal the
+// current user owns. Scoped through the deal's ownership.
+export async function setOfferStatusAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const dealId = String(formData.get("dealId") ?? "");
+  const buyerId = String(formData.get("buyerId") ?? "");
+  const offerStatus = String(formData.get("offerStatus") ?? "");
+  if (
+    !dealId ||
+    !buyerId ||
+    !(OFFER_STATUSES as readonly string[]).includes(offerStatus)
+  ) {
+    return;
+  }
+
+  // Confirm the deal belongs to the current user before touching the offer.
+  const deal = await prisma.deal.findFirst({
+    where: { id: dealId, userId: user.id },
+  });
+  if (!deal) return;
+
+  // Only update records that actually carry an offer.
+  await prisma.dealInterest.updateMany({
+    where: { dealId, buyerId, offerStatus: { not: null } },
+    data: { offerStatus },
+  });
+
+  await logAudit({
+    userId: user.id,
+    action: "offer.status",
+    entity: "deal",
+    entityId: dealId,
+    detail: `buyer:${buyerId} ${offerStatus}`,
+  });
   revalidatePath(`/deals/${dealId}`);
 }
 

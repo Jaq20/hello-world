@@ -107,8 +107,15 @@ model DealInterest {
 
   token String @unique
 
-  // sent | viewed | interested | passed
+  // sent | viewed | interested | passed | offered
   status String @default("sent")
+
+  // Offer tracking. A buyer may submit a dollar offer via their private link.
+  // offerStatus is owner-driven once an offer exists: pending | accepted | declined.
+  offerAmount Int?
+  offerNote   String?
+  offerStatus String?
+  offeredAt   DateTime?
 
   sentAt      DateTime  @default(now())
   viewedAt    DateTime?
@@ -117,4 +124,20 @@ model DealInterest {
   @@unique([dealId, buyerId])
   @@index([dealId])
   @@index([buyerId])
+}
+
+// Append-only audit trail of security- and data-relevant events. Stored
+// without a hard FK so records survive account deletion; userId is the actor
+// (null for unauthenticated actions such as a failed login).
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  detail    String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

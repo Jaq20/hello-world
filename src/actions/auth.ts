@@ -10,6 +10,8 @@ import {
   getCurrentUser,
 } from "@/lib/auth";
 import { signupSchema, loginSchema, fieldErrors } from "@/lib/validation";
+import { rateLimitByIp } from "@/lib/rate-limit";
+import { logAudit } from "@/lib/audit";
 
 export type AuthState = {
   error?: string;
@@ -20,6 +22,12 @@ export async function signupAction(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  // Throttle account creation per IP to curb abuse.
+  const limit = rateLimitByIp("signup", 5, 15 * 60 * 1000);
+  if (!limit.ok) {
+    return { error: "Too many attempts. Please try again later." };
+  }
+
   const parsed = signupSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
@@ -41,6 +49,7 @@ export async function signupAction(
     data: { email, name, passwordHash: await hashPassword(password) },
   });
 
+  await logAudit({ userId: user.id, action: "user.signup" });
   await createSession(user.id);
   redirect("/dashboard");
 }
@@ -49,6 +58,14 @@ export async function loginAction(
   _prev: AuthState,
   formData: FormData,
 ): Promise<AuthState> {
+  // Throttle login attempts per IP to slow credential-stuffing/brute force.
+  const limit = rateLimitByIp("login", 10, 5 * 60 * 1000);
+  if (!limit.ok) {
+    return {
+      error: `Too many attempts. Try again in ${limit.retryAfterSeconds}s.`,
+    };
+  }
+
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -68,14 +85,22 @@ export async function loginAction(
     : await verifyPassword(password, "$2a$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
 
   if (!user || !ok) {
+    await logAudit({
+      userId: user?.id ?? null,
+      action: "user.login_failed",
+      detail: email,
+    });
     return { error: "Invalid email or password" };
   }
 
+  await logAudit({ userId: user.id, action: "user.login" });
   await createSession(user.id);
   redirect("/dashboard");
 }
 
 export async function logoutAction(): Promise<void> {
+  const user = await getCurrentUser();
+  if (user) await logAudit({ userId: user.id, action: "user.logout" });
   await destroySession();
   redirect("/login");
 }

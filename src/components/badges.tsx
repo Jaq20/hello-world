@@ -11,7 +11,14 @@ const INTEREST_STATUS_STYLES: Record<string, string> = {
   sent: "bg-slate-100 text-slate-600",
   viewed: "bg-blue-50 text-blue-700",
   interested: "bg-green-50 text-green-700",
+  offered: "bg-indigo-50 text-indigo-700",
   passed: "bg-red-50 text-red-700",
+};
+
+const OFFER_STATUS_STYLES: Record<string, string> = {
+  pending: "bg-amber-50 text-amber-700",
+  accepted: "bg-green-50 text-green-700",
+  declined: "bg-red-50 text-red-700",
 };
 
 export function DealStatusBadge({ status }: { status: string }) {
@@ -25,6 +32,14 @@ export function DealStatusBadge({ status }: { status: string }) {
 export function InterestStatusBadge({ status }: { status: string }) {
   return (
     <span className={`badge ${INTEREST_STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
+      {titleCase(status)}
+    </span>
+  );
+}
+
+export function OfferStatusBadge({ status }: { status: string }) {
+  return (
+    <span className={`badge ${OFFER_STATUS_STYLES[status] ?? "bg-slate-100 text-slate-600"}`}>
       {titleCase(status)}
     </span>
   );

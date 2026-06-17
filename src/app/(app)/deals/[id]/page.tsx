@@ -5,12 +5,17 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { matchBuyersToDeal } from "@/lib/matching";
 import { formatCurrency, formatNumber, relativeTime } from "@/lib/format";
-import { DealStatusBadge, InterestStatusBadge } from "@/components/badges";
+import {
+  DealStatusBadge,
+  InterestStatusBadge,
+  OfferStatusBadge,
+} from "@/components/badges";
 import { CopyLink } from "@/components/CopyLink";
 import {
   sendDealToBuyerAction,
   unsendDealAction,
   setDealStatusAction,
+  setOfferStatusAction,
 } from "@/actions/deals";
 import { DEAL_STATUSES } from "@/lib/validation";
 import { titleCase } from "@/lib/format";
@@ -52,6 +57,7 @@ export default async function DealDetailPage({
 
   const sentCount = deal.interests.length;
   const interestedCount = deal.interests.filter((i) => i.status === "interested").length;
+  const offers = deal.interests.filter((i) => i.offerStatus != null);
 
   return (
     <div>
@@ -143,9 +149,58 @@ export default async function DealDetailPage({
             </h2>
             <p className="text-sm text-slate-600">
               Sent to <span className="font-semibold text-slate-900">{sentCount}</span> ·{" "}
-              <span className="font-semibold text-green-600">{interestedCount}</span> interested
+              <span className="font-semibold text-green-600">{interestedCount}</span> interested ·{" "}
+              <span className="font-semibold text-indigo-600">{offers.length}</span> offer
+              {offers.length === 1 ? "" : "s"}
             </p>
           </div>
+
+          {offers.length > 0 && (
+            <div className="card p-5">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Offers
+              </h2>
+              <ul className="space-y-3">
+                {offers
+                  .slice()
+                  .sort((a, b) => (b.offerAmount ?? 0) - (a.offerAmount ?? 0))
+                  .map((o) => (
+                    <li key={o.id} className="rounded-lg bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-slate-900">
+                          {formatCurrency(o.offerAmount)}
+                        </span>
+                        <OfferStatusBadge status={o.offerStatus ?? "pending"} />
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {o.buyer.name} · {relativeTime(o.offeredAt)}
+                      </p>
+                      {o.offerNote && (
+                        <p className="mt-1 text-sm text-slate-700">
+                          &ldquo;{o.offerNote}&rdquo;
+                        </p>
+                      )}
+                      {o.offerStatus === "pending" && (
+                        <div className="mt-2 flex gap-2">
+                          <form action={setOfferStatusAction}>
+                            <input type="hidden" name="dealId" value={deal.id} />
+                            <input type="hidden" name="buyerId" value={o.buyerId} />
+                            <input type="hidden" name="offerStatus" value="accepted" />
+                            <button className="btn-primary px-2.5 py-1 text-xs">Accept</button>
+                          </form>
+                          <form action={setOfferStatusAction}>
+                            <input type="hidden" name="dealId" value={deal.id} />
+                            <input type="hidden" name="buyerId" value={o.buyerId} />
+                            <input type="hidden" name="offerStatus" value="declined" />
+                            <button className="btn-danger px-2.5 py-1 text-xs">Decline</button>
+                          </form>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* Right: matching & sending */}
@@ -186,11 +241,13 @@ export default async function DealDetailPage({
                         </p>
                         {interest && (
                           <p className="mt-1 text-xs text-slate-400">
-                            {interest.respondedAt
-                              ? `Responded ${relativeTime(interest.respondedAt)}`
-                              : interest.viewedAt
-                                ? `Opened ${relativeTime(interest.viewedAt)}`
-                                : `Sent ${relativeTime(interest.sentAt)}`}
+                            {interest.offerAmount != null
+                              ? `Offered ${formatCurrency(interest.offerAmount)} · ${relativeTime(interest.offeredAt)}`
+                              : interest.respondedAt
+                                ? `Responded ${relativeTime(interest.respondedAt)}`
+                                : interest.viewedAt
+                                  ? `Opened ${relativeTime(interest.viewedAt)}`
+                                  : `Sent ${relativeTime(interest.sentAt)}`}
                           </p>
                         )}
                       </div>
