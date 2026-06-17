@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { dealSchema, fieldErrors, DEAL_STATUSES } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
+import { deleteFile } from "@/lib/storage";
 
 export type DealFormState = {
   error?: string;
@@ -109,19 +110,51 @@ export async function deleteDealAction(formData: FormData): Promise<void> {
   const dealId = String(formData.get("dealId") ?? "");
   if (!dealId) return;
 
-  const result = await prisma.deal.deleteMany({
+  // Load the deal (scoped to the user) with its photos so we can remove the
+  // underlying files; the DB rows cascade with the deal.
+  const deal = await prisma.deal.findFirst({
     where: { id: dealId, userId: user.id },
+    include: { photos: { select: { storageKey: true } } },
   });
-  if (result.count > 0) {
-    await logAudit({
-      userId: user.id,
-      action: "deal.delete",
-      entity: "deal",
-      entityId: dealId,
-    });
+  if (!deal) {
+    redirect("/deals");
   }
+
+  await prisma.deal.delete({ where: { id: deal.id } });
+  await Promise.all(deal.photos.map((p) => deleteFile(p.storageKey)));
+
+  await logAudit({
+    userId: user.id,
+    action: "deal.delete",
+    entity: "deal",
+    entityId: dealId,
+  });
   revalidatePath("/deals");
   redirect("/deals");
+}
+
+// Delete a single photo from a deal the current user owns.
+export async function deleteDealPhotoAction(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const photoId = String(formData.get("photoId") ?? "");
+  if (!photoId) return;
+
+  const photo = await prisma.dealPhoto.findUnique({
+    where: { id: photoId },
+    include: { deal: { select: { userId: true } } },
+  });
+  if (!photo || photo.deal.userId !== user.id) return;
+
+  await prisma.dealPhoto.delete({ where: { id: photoId } });
+  await deleteFile(photo.storageKey);
+
+  await logAudit({
+    userId: user.id,
+    action: "deal.photo_delete",
+    entity: "deal",
+    entityId: photo.dealId,
+  });
+  revalidatePath(`/deals/${photo.dealId}`);
 }
 
 // Send (or re-send) a deal to a buyer: creates a DealInterest with a unique

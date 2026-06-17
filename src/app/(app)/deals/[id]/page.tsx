@@ -16,9 +16,12 @@ import {
   unsendDealAction,
   setDealStatusAction,
   setOfferStatusAction,
+  deleteDealPhotoAction,
 } from "@/actions/deals";
 import { DEAL_STATUSES } from "@/lib/validation";
 import { titleCase } from "@/lib/format";
+import { PhotoUploadForm } from "@/components/PhotoUploadForm";
+import { MAX_PHOTOS_PER_DEAL } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "Deal — PropFlip" };
 
@@ -40,7 +43,10 @@ export default async function DealDetailPage({
 
   const deal = await prisma.deal.findFirst({
     where: { id: params.id, userId: user.id },
-    include: { interests: { include: { buyer: true } } },
+    include: {
+      interests: { include: { buyer: true } },
+      photos: { orderBy: { createdAt: "asc" } },
+    },
   });
   if (!deal) notFound();
 
@@ -142,6 +148,43 @@ export default async function DealDetailPage({
               <p className="whitespace-pre-wrap text-sm text-slate-700">{deal.description}</p>
             </div>
           )}
+
+          <div className="card p-5">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Photos
+            </h2>
+            {deal.photos.length > 0 ? (
+              <div className="mb-4 grid grid-cols-3 gap-2">
+                {deal.photos.map((photo) => (
+                  <div key={photo.id} className="group relative aspect-square">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/photos/${photo.id}`}
+                      alt="Deal photo"
+                      className="h-full w-full rounded-lg object-cover ring-1 ring-slate-200"
+                    />
+                    <form action={deleteDealPhotoAction} className="absolute right-1 top-1">
+                      <input type="hidden" name="photoId" value={photo.id} />
+                      <button
+                        aria-label="Delete photo"
+                        className="flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity hover:bg-black/80 group-hover:opacity-100"
+                      >
+                        ×
+                      </button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-4 text-sm text-slate-500">
+                No photos yet. Add a few to help buyers say yes faster.
+              </p>
+            )}
+            <PhotoUploadForm
+              dealId={deal.id}
+              remaining={MAX_PHOTOS_PER_DEAL - deal.photos.length}
+            />
+          </div>
 
           <div className="card p-5">
             <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">

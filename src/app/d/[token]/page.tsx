@@ -33,7 +33,10 @@ export default async function PublicDealPage({
   // wholesaler's account or other buyers.
   const interest = await prisma.dealInterest.findUnique({
     where: { token: params.token },
-    include: { deal: true, buyer: true },
+    include: {
+      deal: { include: { photos: { orderBy: { createdAt: "asc" } } } },
+      buyer: true,
+    },
   });
   if (!interest) notFound();
 
@@ -68,6 +71,20 @@ export default async function PublicDealPage({
             <p className="mt-3 text-3xl font-extrabold">{formatCurrency(deal.askingPrice)}</p>
             <p className="text-sm text-teal-100">Asking price</p>
           </div>
+
+          {deal.photos.length > 0 && (
+            <div className="grid grid-cols-2 gap-1 bg-white p-1">
+              {deal.photos.map((photo) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={photo.id}
+                  src={`/api/photos/${photo.id}?t=${interest.token}`}
+                  alt="Deal photo"
+                  className="aspect-square w-full rounded-md object-cover"
+                />
+              ))}
+            </div>
+          )}
 
           <div className="p-5">
             <dl className="grid grid-cols-2 gap-3">

@@ -25,6 +25,9 @@ model you can build on.
 - **Offer tracking** — buyers can submit a dollar offer (with an optional note)
   on their private link; the wholesaler reviews offers per deal and marks each
   *accepted* or *declined*. Pending offers surface on the dashboard.
+- **Deal photos** — attach photos to a deal (camera-friendly on mobile).
+  Buyers see them on their private link. Files are stored on disk/object
+  storage, not in the database, so storage stays cheap.
 - **Dashboard** — pipeline stats (active deals, buyers, interested, pending
   offers) and recent buyer activity at a glance.
 - **Mobile-first** — responsive layout with a desktop sidebar and a mobile tab
@@ -75,7 +78,7 @@ Open http://localhost:3000.
 
 ```
 prisma/
-  schema.prisma        # User, Session, Buyer, Deal, DealInterest, AuditLog
+  schema.prisma        # User, Session, Buyer, Deal, DealInterest, DealPhoto, AuditLog
   seed.mjs             # demo data
 src/
   actions/             # server actions (auth, buyers, deals, interest)
@@ -83,6 +86,9 @@ src/
     (auth)/            # login / signup (redirects authed users away)
     (app)/             # authenticated shell: dashboard, buyers, deals
     d/[token]/         # public, per-recipient deal page (no auth)
+    api/
+      deals/[id]/photos/  # POST: authorized multipart photo upload
+      photos/[id]/        # GET: authorized photo serving (owner or token)
   components/          # UI building blocks
   lib/
     auth.ts            # sessions, password hashing, requireUser()
@@ -90,6 +96,8 @@ src/
     matching.ts        # buyer <-> deal matching/scoring
     rate-limit.ts      # per-IP rate limiting
     audit.ts           # append-only audit logging
+    storage.ts         # file storage abstraction (swap for S3/R2)
+    uploads.ts         # upload limits + magic-byte image validation
     validation.ts      # zod schemas
     format.ts          # formatting helpers
 ```
@@ -110,8 +118,14 @@ src/
 - **Rate limiting.** Authentication (login/signup) and the public offer/response
   endpoints are rate-limited per client IP to slow brute force and abuse.
 - **Audit logging.** Security- and data-relevant events (logins, failed
-  logins, signups, buyer/deal create-update-delete, sends, and offers) are
-  written to an append-only `AuditLog`.
+  logins, signups, buyer/deal create-update-delete, sends, offers, and photo
+  uploads/deletes) are written to an append-only `AuditLog`.
+- **Secure uploads.** Deal photos are validated by magic bytes (not the
+  client's filename/type), capped in size (5 MB) and count (12 per deal),
+  stored under random keys (no path traversal), and served only to the owner
+  or a holder of the deal's private token. Image bytes live in file/object
+  storage — the database keeps only small metadata rows, so storage cost stays
+  low. Swap `src/lib/storage.ts` for S3/R2 to scale out.
 - **Public deal links.** The only unauthenticated surface is `/d/[token]`. The
   token is 24 random bytes and grants access to exactly one deal's shared
   details for one recipient — nothing else about the account.
